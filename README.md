@@ -3,10 +3,8 @@ Single-cell Deconvolution methods to understand tumour evolution
 
 June 28th 2024  
 
--Explain datasets and associated metadata  
+-Datasets and associated metadata: PDAC TCGA (downsampled)
 
--Inference of cell-types using BayesPrism, MuSiC and CIBERSORTx  
+-Inference of cell-types using BayesPrism, Bisque, MuSiC, CIBERSORTx, and EPIC algorithms  
 
--Data visualization
-
-
+-Data visualization and interpretation

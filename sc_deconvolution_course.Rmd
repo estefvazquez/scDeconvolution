@@ -1,0 +1,227 @@
+---
+title: "Single-cell deconvolution methods"
+output:
+  html_document:
+    theme: simplex
+    toc: yes
+    toc_float:
+      collapsed: true
+---
+
+This vignette provides an overview of first and second generation methods for cell-type deconvolution using transcriptomic data. It provides consise examples, along with some considerations and exercises. We will be working with Pancreatic Ductal Adenocarcinoma (PDAC) data from TCGA.
+
+```{r, message=FALSE}
+#load libraries
+suppressWarnings(library(BayesPrism))
+library(MuSiC)
+library(Biobase)
+library(BisqueRNA)
+library(immunedeconv)
+library(immunedeconv)
+library(plotly)
+library(tidyverse)
+library(ggthemes)
+library(ggpubr)
+library(RColorBrewer)
+library(colorspace)
+library(cowplot)
+```
+
+```{r}
+#Load data - PDAC TCGA downsampled
+PDAC <- readRDS("tcga_pdac_downsampled.rds")
+metadata <- readRDS("tcga_clindata_downsampled.rds")
+#toy melanoma data - downsampled data for demo
+toydata <- readRDS("toydata_10s.rds")
+```
+
+## 1. BayesPrism
+```{r}
+
+
+```
+
+## 2. MuSic
+```{r}
+
+```
+
+## 3. Bisque
+```{r}
+#browseVignettes("BisqueRNA")
+#bulk.eset <- Biobase::ExpressionSet(assayData = toydata)
+
+#add cell type labels and individual labels - df
+#sample.ids <- colnames(sc.counts.matrix)
+# individual.ids and cell.types should be in the same order as in sample.ids
+#sc.pheno <- data.frame(check.names=F, check.rows=F,
+#                       stringsAsFactors=F,
+#                       row.names=sample.ids,
+#                       SubjectName=individual.labels,
+#                       cellType=cell.type.labels)
+#sc.meta <- data.frame(labelDescription=c("SubjectName",
+#                                         "cellType"),
+#                      row.names=c("SubjectName",
+#                                  "cellType"))
+#sc.pdata <- new("AnnotatedDataFrame",
+#                data=sc.pheno,
+#                varMetadata=sc.meta)
+#sc.eset <- Biobase::ExpressionSet(assayData=sc.counts.matrix,
+#                                  phenoData=sc.pdata)
+#if data is seurat object
+#sc.eset <- BisqueRNA::SeuratToExpressionSet(seurat.obj, delimiter="-", position=2, version="v3")
+#
+#Reference-based decomposition
+#simulated data single-cell and bulk RNA-seq counts 
+#cell.types <- c("Neurons", "Astrocytes", "Oligodendrocytes", "Microglia", "Endothelial Cells")
+#avg.props <- c(.5, .2, .2, .07, .03)
+#sim.data <- SimulateData(n.ind=10, n.genes=100, n.cells=500, cell.types=cell.types, avg.props=avg.props)
+#sc.eset <- sim.data$sc.eset[,sim.data$sc.eset$SubjectName %in% as.character(6:10)]
+#bulk.eset <- sim.data$bulk.eset
+#true.props <- sim.data$props
+#markers <- sim.data$markers
+#
+#call the reference-based decomposition method:
+#res <- BisqueRNA::ReferenceBasedDecomposition(bulk.eset, sc.eset, markers=NULL, use.overlap=TRUE)
+#
+#A list is returned with decomposition estimates in slot bulk.props.
+#ref.based.estimates <- res$bulk.props
+#knitr::kable(ref.based.estimates, digits=2)
+#
+#correlate estimates with the true proportions
+#r <- cor(as.vector(ref.based.estimates), 
+#         as.vector(true.props[row.names(ref.based.estimates),colnames(ref.based.estimates)]))
+#knitr::knit_print(sprintf("R: %f", r))
+#
+#Marker-based decomposition - using only known marker genes when a reference profile is not available
+#call 
+#res_mb <- BisqueRNA::MarkerBasedDecomposition(bulk.eset, markers, weighted=F)
+#list is returned
+#marker.based.estimates <- res_mb$bulk.props
+#knitr::kable(marker.based.estimates, digits = 2)
+#Note: these estimates are relative within each cell type, so you cannot immediately compare abundance estimates between cell types
+#correlate  estimates with the scaled true proportions
+#
+#scaled.true.props <- t(scale(t(true.props)))[rownames(marker.based.estimates),]
+#r <- cor(as.vector(marker.based.estimates),
+#         as.vector(scaled.true.props))
+#knitr::knit_print(sprintf("R: %f", r))
+#
+```
+
+## 4. CIBERSORTx 
+Docker container also requires token from website. Go to the [CIBERSORTx website](https://cibersortx.stanford.edu/) and login with your account details. Get token.
+
+```{r}
+
+```
+
+
+## 5. Immunedeconv 
+
+```{r fig.width=8, fig.height=6, fig.align='center'}
+
+#available methods
+deconvolution_methods
+#EPIC
+?EPIC::EPIC.package
+
+#run EPIC - input data should be a matrix
+#tumour reference
+EPIC_results <- EPIC(bulk = toydata, reference = TRef) #uses gene symbols
+
+#results
+EPIC_results$cellFractions
+EPIC_results$fit.gof
+EPIC_results_cf <- as.data.frame(EPIC_results$cellFractions)
+fit <- as.data.frame(EPIC_results$fit.gof)
+summary(EPIC_results_cf)
+skimr::skim(EPIC_results_cf)
+
+#export csv
+write.table(EPIC_results_cf, "epic_results_demo.csv", sep = "\t") 
+
+#transform data to plot 
+results_gt <- EPIC_results_cf %>% rownames_to_column(var = "sample_id") %>% 
+                                  gather(-sample_id, key = cell_type, value = proportion) 
+glimpse(results_gt)
+View(results_gt)
+
+#reorder 
+ordered <- results_gt %>% mutate(cell_type = fct_reorder(cell_type, proportion))
+
+#plot 1 - dist boxplot 
+ggplot(data = ordered, mapping = aes(x = cell_type, y = proportion, fill = cell_type)) + 
+  geom_boxplot(outlier.alpha = 0, na.rm = TRUE) + 
+  geom_point(size = 1.5, alpha = .5, position = position_jitter(seed = 1, width = .22)) + 
+               labs(title = "EPIC estimates", 
+                    x = "Cell type", y = "Proportion") + theme_minimal() + 
+                    theme(axis.text.x = element_text(angle=90)) + 
+                    scale_fill_brewer(palette = "Dark2") 
+
+ggsave(file="epic_boxplot.png", height=7, width=8, dpi=400)
+
+
+#plot 2 - stacked - distribution of cell types across samples
+p <- ggplot(results_gt, aes(x = sample_id, y = proportion, fill = cell_type)) +
+         geom_col(position = "fill") + theme_minimal() + 
+          theme(axis.text.x = element_text(angle=90)) +  
+           scale_fill_brewer(palette = "Dark2") +
+           labs(title = "EPIC - Interactive plot", 
+                    x = "Sample", 
+                    y = "Estimated proportion") 
+  
+ggsave(file="epic_stacked.png", height=5, width=7, dpi=400)
+
+library(plotly)
+int <- ggplotly(p)
+int
+
+#save
+htmlwidgets::saveWidget(as_widget(int), "interactive_plot.html")
+```
+
+## DREAM Challenge
+
+##  Exercise 1- individual
+```{r}
+
+```
+
+##  Exercise 2 - individual
+```{r}
+
+```
+
+##  Exercise 3 - teams (breakout rooms)
+```{r}
+
+```
+
+
+
+## References
+
+
+
+Please visit the [**Deconvolution Course Repository**](https://github.com/estefvazquez/scDeconvolution_course) for further resources.  
+
+
+
+- Chu, T., Wang, Z., Pe’er, D. Danko, C. G. Cell type and gene expression deconvolution with BayesPrism enables Bayesian integrative analysis across bulk and single-cell RNA sequencing in oncology. Nat Cancer 3, 505–517 (2022). https://doi.org/10.1038/s43018-022-00356-3  
+
+- Wang, X., Park, J., Susztak, K., Zhang, N. R., & Li, M. (2019). Bulk tissue cell type deconvolution with multi-subject single-cell expression reference. Nature Communications, 10(1), 380. https://doi.org/10.1038/s41467-018-08023-x  
+
+- Newman, A. M., Liu, C. L., Green, M. R., Gentles, A. J., Feng, W., Xu, Y., Hoang, C. D., Diehn, M., & Alizadeh, A. A. (2015). Robust enumeration of cell subsets from tissue expression profiles. Nature Methods, 12(5), 453–457. https://doi.org/10.1038/nmeth.3337  
+
+- Jew, B., Alvarez, M., Rahmani, E., Miao, Z., Ko, A., Garske, K. M., Sul, J. H., Pietiläinen, K. H., Pajukanta, P., & Halperin, E. (2020). Publisher Correction: Accurate estimation of cell composition in bulk expression through robust integration of single-cell information. Nature Communications, 11(1), 2891. https://doi.org/10.1038/s41467-020-16607-9  
+
+- Racle, J., de Jonge, K., Baumgaertner, P., Speiser, D. E., & Gfeller, D. (2017). Simultaneous enumeration of cancer and immune cell types from bulk tumor gene expression data. ELife, 6, e26476. https://doi.org/10.7554/eLife.26476  
+
+
+
+
+
+
+
+

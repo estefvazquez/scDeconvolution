@@ -246,7 +246,7 @@ readr::write_csv(bisque_results, "bisque_results.csv")
 ```
 
 
-## 4. Immunedeconv 
+## 3. Immunedeconv 
 
 ```{r fig.width=8, fig.height=6, fig.align='center'}
 

@@ -8,7 +8,7 @@ output:
       collapsed: true
 ---
 
-This vignette provides an overview of first and second generation methods for cell-type deconvolution using transcriptomic data. It provides consise examples, along with some considerations and exercises. We will be working with Pancreatic Ductal Adenocarcinoma (PDAC) data from TCGA.
+This vignette provides an overview of first and second generation methods for cell-type deconvolution using transcriptomic data. It provides consise examples, along with some considerations and exercises. We will be working with Pancreatic Ductal Adenocarcinoma (PDAC) data (downsampled) from the TCGA project.
 
 ```{r, message=FALSE}
 #load libraries
@@ -189,66 +189,67 @@ save(bp.res, file = "bayesprism_results.rdata")
 
 ## 3. Bisque
 ```{r}
-#browseVignettes("BisqueRNA")
-#bulk.eset <- Biobase::ExpressionSet(assayData = toydata)
 
-#add cell type labels and individual labels - df
-#sample.ids <- colnames(sc.counts.matrix)
-# individual.ids and cell.types should be in the same order as in sample.ids
-#sc.pheno <- data.frame(check.names=F, check.rows=F,
-#                       stringsAsFactors=F,
-#                       row.names=sample.ids,
-#                       SubjectName=individual.labels,
-#                       cellType=cell.type.labels)
-#sc.meta <- data.frame(labelDescription=c("SubjectName",
-#                                         "cellType"),
-#                      row.names=c("SubjectName",
-#                                  "cellType"))
-#sc.pdata <- new("AnnotatedDataFrame",
-#                data=sc.pheno,
-#                varMetadata=sc.meta)
-#sc.eset <- Biobase::ExpressionSet(assayData=sc.counts.matrix,
-#                                  phenoData=sc.pdata)
-#if data is seurat object
-#sc.eset <- BisqueRNA::SeuratToExpressionSet(seurat.obj, delimiter="-", position=2, version="v3")
-#
-#Reference-based decomposition
-#simulated data single-cell and bulk RNA-seq counts 
-#cell.types <- c("Neurons", "Astrocytes", "Oligodendrocytes", "Microglia", "Endothelial Cells")
-#avg.props <- c(.5, .2, .2, .07, .03)
-#sim.data <- SimulateData(n.ind=10, n.genes=100, n.cells=500, cell.types=cell.types, avg.props=avg.props)
-#sc.eset <- sim.data$sc.eset[,sim.data$sc.eset$SubjectName %in% as.character(6:10)]
-#bulk.eset <- sim.data$bulk.eset
-#true.props <- sim.data$props
-#markers <- sim.data$markers
-#
-#call the reference-based decomposition method:
-#res <- BisqueRNA::ReferenceBasedDecomposition(bulk.eset, sc.eset, markers=NULL, use.overlap=TRUE)
-#
-#A list is returned with decomposition estimates in slot bulk.props.
-#ref.based.estimates <- res$bulk.props
-#knitr::kable(ref.based.estimates, digits=2)
-#
-#correlate estimates with the true proportions
-#r <- cor(as.vector(ref.based.estimates), 
-#         as.vector(true.props[row.names(ref.based.estimates),colnames(ref.based.estimates)]))
-#knitr::knit_print(sprintf("R: %f", r))
-#
-#Marker-based decomposition - using only known marker genes when a reference profile is not available
-#call 
-#res_mb <- BisqueRNA::MarkerBasedDecomposition(bulk.eset, markers, weighted=F)
-#list is returned
-#marker.based.estimates <- res_mb$bulk.props
-#knitr::kable(marker.based.estimates, digits = 2)
-#Note: these estimates are relative within each cell type, so you cannot immediately compare abundance estimates between cell types
-#correlate  estimates with the scaled true proportions
-#
-#scaled.true.props <- t(scale(t(true.props)))[rownames(marker.based.estimates),]
-#r <- cor(as.vector(marker.based.estimates),
-#         as.vector(scaled.true.props))
-#knitr::knit_print(sprintf("R: %f", r))
-#
+# Running deconvolution with Bisque (remember that bisque expects features as rows and cells/samples as columns. If it is not, you just have to transpose)
+# data: PDAC TCGA downsampled
+
+# Working directory
+setwd("/home/training/Estef-Gabriel/deconvolution_data")
+
+# Load libraries
+library(Biobase)
+library(BisqueRNA)
+library(Seurat)
+
+# Load bulk data
+bulkdata <- readRDS("tcga_pdac_counts.rds")
+bulkdata <- as.matrix(bulkdata)
+
+# Convert bulk RNA-seq from matrix to an ExpressionSet object
+bulk.eset <- ExpressionSet(assayData = bulkdata)
+rm(bulkdata)
+
+# Load single-cell Seurat object
+sobj <- readRDS('sc_ref_pdac_seurat.rds')
+gc()
+
+#sobj
+#colnames(sobj)
+#nrow(sobj) #18507 features, 3000 variable features
+#40k cells
+#Features(sobj)
+#Layers(sobj)
+
+# Extract raw counts from Seurat object
+sc_counts <- GetAssayData(sobj, layer = "counts")
+gc()
+
+# Retrieve and prepare single-cell metadata
+cellmeta <- sobj@meta.data
+celltype <- cellmeta[,c("cell_type", "patient")]
+colnames(celltype) <- c("cellType", "SubjectName")
+df <- data.frame(labelDescription=colnames(celltype), row.names = colnames(celltype))
+rm(sobj)
+gc()
+
+# Create AnnotatedDataFrame object
+sc_annot <- new("AnnotatedDataFrame", data=celltype, varMetadata=df)
+
+# Create ExpressionSet object for single-cell reference
+sc.eset <- ExpressionSet(assayData = as.matrix(sc_counts), phenoData = sc_annot) 
+remove(cellmeta, celltype, sc_counts, sc_annot, df)
+gc()
+
+# Run Bisque decomposition (a.k.a. deconvolution)
+res <- BisqueRNA::ReferenceBasedDecomposition(bulk.eset, sc.eset, markers=NULL, use.overlap=FALSE)
+gc()
+
+# Explore your results
+bisque_results <- as.data.frame(res$bulk.props)
+readr::write_csv(bisque_results, "bisque_results.csv")
+
 ```
+
 
 ## 4. CIBERSORTx 
 Docker container also requires token from website. Go to the [CIBERSORTx website](https://cibersortx.stanford.edu/) and login with your account details. Get token.

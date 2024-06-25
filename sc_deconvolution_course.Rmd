@@ -52,7 +52,7 @@ Features(sobj)
 Layers(sobj)
 ```
 
-## BayesPrism
+## 1. BayesPrism
 ```{r}
 #rename cell_meta columns
 cell_meta <- cell_meta %>% dplyr::rename("cell.type.labels" = "cell_type",
@@ -182,12 +182,7 @@ save(bp.res, file = "bayesprism_results.rdata")
 
 ```
 
-## 2. MuSic
-```{r}
-
-```
-
-## 3. Bisque
+## 2. Bisque
 ```{r}
 
 # Running deconvolution with Bisque (remember that bisque expects features as rows and cells/samples as columns. If it is not, you just have to transpose)
@@ -251,15 +246,7 @@ readr::write_csv(bisque_results, "bisque_results.csv")
 ```
 
 
-## 4. CIBERSORTx 
-Docker container also requires token from website. Go to the [CIBERSORTx website](https://cibersortx.stanford.edu/) and login with your account details. Get token.
-
-```{r}
-
-```
-
-
-## 5. Immunedeconv 
+## 4. Immunedeconv 
 
 ```{r fig.width=8, fig.height=6, fig.align='center'}
 
@@ -323,19 +310,17 @@ int
 htmlwidgets::saveWidget(as_widget(int), "interactive_plot.html")
 ```
 
-## DREAM Challenge
-
-##  Exercise 1- individual
+##  Exercise 1
 ```{r}
 
 ```
 
-##  Exercise 2 - individual
+##  Exercise 2 
 ```{r}
 
 ```
 
-##  Exercise 3 - teams (breakout rooms)
+##  Exercise 3 
 ```{r}
 
 ```

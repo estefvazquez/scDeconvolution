@@ -1,4 +1,4 @@
-# Single-cell deconvolution methods course
+# Single-cell deconvolution methods - practical session
 
 June 28th 2024  
 

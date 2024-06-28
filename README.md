@@ -1,11 +1,12 @@
-# scDeconvolution_course
-Single-cell deconvolution methods course
+# Single-cell deconvolution methods course
 
 June 28th 2024  
 
 -Datasets and associated metadata: PDAC TCGA (downsampled)
 
 -Inference of cell-types using BayesPrism, Bisque, MuSiC, CIBERSORTx, and EPIC algorithms  
+
+Open the sc_deconvolution.Rmd file and go through the code.  
 
 
 Resources/Vignettes:  

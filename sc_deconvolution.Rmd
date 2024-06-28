@@ -319,7 +319,8 @@ p <- ggplot(results_gt, aes(x = sample_id, y = proportion, fill = cell_type)) +
 
 ## Github repository
 
-Find more resources (references, links and vignettes) at the [**Github repository**](https://github.com/estefvazquez/sc_Deconvolution_course){.uri}**.**
+Find more resources (references, links and vignettes) at the [**Github repository**](https://github.com/estefvazquez/sc_Deconvolution){.uri}**.**
+
 
 
 

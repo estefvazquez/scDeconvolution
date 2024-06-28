@@ -6,7 +6,8 @@ June 28th 2024
 
 -Inference of cell-types using BayesPrism, Bisque, MuSiC, CIBERSORTx, and EPIC algorithms  
 
-Open the sc_deconvolution.Rmd file and go through the code.  
+Open the sc_deconvolution.Rmd file to continue with the code. You have all the necessary R libraries and input data in your virtual machine.
+
 
 
 Resources/Vignettes:  

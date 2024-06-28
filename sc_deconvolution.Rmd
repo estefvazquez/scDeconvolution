@@ -1,0 +1,325 @@
+---
+title: "Single-cell deconvolution methods EMBL-EBI course"
+author: "Estef Vazquez & Gabriel Pereira"
+output:
+  html_document:
+    theme: simplex
+    toc: yes
+    toc_float:
+      collapsed: true
+---
+
+This vignette provides an overview of first and second generation methods for cell-type deconvolution using transcriptomic data, along with some examples and considerations. For the purpose of this exercise, we will be utilizing Pancreatic Ductal Adenocarcinoma (PDAC) data from the TCGA project, which has been downsampled.
+
+
+## Exercise 1: Bisque
+
+Running deconvolution with Bisque (remember that bisque expects features as rows and cells/samples as columns. If it is not, you just have to transpose the data).
+
+Data: PDAC TCGA downsampled
+
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/home/training/Estef-Gabriel/deconvolution_data")
+```
+
+```{r, message=FALSE}
+# Load libraries
+library(Biobase)
+library(BisqueRNA)
+suppressWarnings(library(Seurat))
+suppressWarnings(library(BayesPrism))
+library(immunedeconv)
+library(tidyverse)
+library(plotly)
+library(ggthemes)
+library(ggpubr)
+library(RColorBrewer)
+library(colorspace)
+library(cowplot)
+```
+
+
+```{r}
+# Load bulk data
+bulkdata <- readRDS("tcga_pdac_counts.rds")
+bulkdata <- as.matrix(bulkdata)
+
+# Convert bulk RNA-seq from matrix to an ExpressionSet obj
+bulk.eset <- ExpressionSet(assayData = bulkdata)
+rm(bulkdata)
+
+# Load clinical data
+clindata <- readRDS("tcga_pdac_clindata.rds")
+glimpse(clindata)
+
+# Load TPMs 
+tpms <- readRDS("tcga_pdac_tpm.rds")
+tpms <- tpms %>% rownames_to_column(var = "Gene")
+
+# Load single-cell Seurat object
+sobj <- readRDS('sc_ref_pdac_seurat.rds')
+sobj
+Layers(sobj)
+#colnames(sobj)
+#nrow(sobj) 
+#Features(sobj)
+#sobj[[]] 
+
+# Extract raw counts from Seurat object
+sc_counts <- GetAssayData(sobj, layer = "counts")
+
+```
+
+```{r, warning=FALSE}
+# Retrieve and prepare single-cell metadata
+cellmeta <- sobj@meta.data
+celltype <- cellmeta[,c("cell_type", "patient")]
+colnames(celltype) <- c("cellType", "SubjectName")
+df <- data.frame(labelDescription=colnames(celltype), row.names = colnames(celltype))
+rm(sobj)
+
+# Create AnnotatedDataFrame object
+sc_annot <- new("AnnotatedDataFrame", data=celltype, varMetadata=df)
+
+# Create ExpressionSet object for single-cell reference
+sc.eset <- ExpressionSet(assayData = as.matrix(sc_counts), phenoData = sc_annot) 
+remove(cellmeta, celltype, sc_counts, sc_annot, df)
+
+# Run Bisque decomposition (a.k.a. deconvolution)
+res <- BisqueRNA::ReferenceBasedDecomposition(bulk.eset, sc.eset, markers=NULL, use.overlap=FALSE)
+#gc()
+
+# Explore results
+#res$bulk.props
+bisque_results <- as.data.frame(res$bulk.props)
+bisque_results <- t(bisque_results) #transpose data
+#knitr::kabble
+```
+What were the most and least abundant cell types present in your data?
+
+
+## Exercise 2: BayesPrism
+
+The time required for the Deconvolution step using BayesPrism is approximately 10 minutes. 
+```{r}
+# Load bulk data - PDAC TCGA raw counts
+bulkdata <- readRDS('tcga_pdac_counts.rds')
+bulkdata <- as.data.frame(t(bulkdata)) #Different than Bisque, Bayes expects features as columns (sample by gene)
+
+dim(bulkdata)
+head(rownames(bulkdata)) #samples as rownames
+head(colnames(bulkdata)) #genes as colnames
+
+#2) Load clinical data
+clindata <- readRDS('tcga_pdac_clindata.rds')
+#glimpse(clindata)
+
+# Load sc Seurat object
+sobj <- readRDS('sc_ref_pdac_seurat.rds')
+sobj
+#colnames(sobj)
+#nrow(sobj) #18.5k
+#Features(sobj)
+#Layers(sobj)
+
+# Retrieve  single-cell metadata
+cellmeta <- sobj@meta.data
+
+# Rename cell_meta columns
+cell_meta <- cellmeta %>% dplyr::rename("cell.type.labels" = "cell_type",
+                                         "cell.state.labels" = "cell_state") 
+glimpse(cell_meta)
+
+
+#If you have different levels of granularity for cell annotation, you can pass it. But, rare cell types or cell states might be challenging to estimate.
+#As a start we can run at a higher level of cell annotation
+cell.type.labels <- cell_meta$cell.type.labels
+cell.state.labels <- cell_meta$cell.state.labels
+
+cell.type.labels <- as.character(cell.type.labels)
+cell.state.labels <- as.character(cell.state.labels)
+
+#cell.type.labels will be a character vector of the same length as nrow(sc.dat) to denote the cell type of each cell in the reference
+sort(table(cell.type.labels))
+#cell.state.labels is a character vector of the same length as nrow(sc.dat) to denote the cell state of each cell in the reference
+sort(table(cell.state.labels))
+
+cell_annot <- as.data.frame(table(cbind.data.frame(cell.state.labels, cell.type.labels)))
+
+# Extracting the counts from the seurat object
+sc.dat <- GetAssayData(sobj, assay='RNA', slot='counts')
+sc.dat <- t(sc.dat) #Here we transpose the matrix 
+
+# In this step, we need to convert the sparse matrix to a dense matrix
+sc.dat <- as.matrix(sc.dat) #heavy
+colnames(sc.dat)
+
+#Before starting the deconvolution, Bayes allows you to check for correlation between your cell types
+#Higher correlation means that the cell types share similarities
+#Pairwise correlation matrix 
+plot.cor.phi (input=sc.dat,
+              input.labels=cell.type.labels,
+              title="cell state correlation",
+              pdf.prefix = "cor_matrix",
+              cexRow=0.5, cexCol=0.5,
+              margins=c(4,4)
+)
+
+plot.cor.phi (input=sc.dat,
+              input.labels=cell.state.labels,
+              title="cell state correlation",
+              pdf.prefix = "cor_matrix_cell_states",
+              cexRow=0.4, cexCol=0.4,
+              margins=c(5,5)
+)
+
+
+#Distribution of outlier genes from scRNA-seq reference
+sc.stat <- plot.scRNA.outlier(
+  input=sc.dat, #make sure the colnames are gene symbol or ENSEMBL ID
+  cell.type.labels=cell.type.labels,
+  species="hs", #currently only human(hs) and mouse(mm) annotations are supported
+  return.raw=TRUE, #return the data used for plotting.
+  pdf.prefix = "outlier_sc"
+)
+gc()
+
+# Visualize outlier genes from bulk RNA-seq
+bk.stat <- plot.bulk.outlier(
+  bulk.input=bulkdata,#make sure the colnames are gene symbol or ENSMEBL ID
+  sc.input=sc.dat, #make sure the colnames are gene symbol or ENSMEBL ID
+  cell.type.labels=cell.type.labels,
+  species="hs", #currently only human(hs) and mouse(mm) annotations are supported
+  return.raw=TRUE,
+  pdf.prefix = "outlier_bulk" 
+)
+gc()
+
+# In this step, we filter our matrix removing features that add noise to our data
+sc.dat.filtered <- cleanup.genes(input=sc.dat,
+                                 input.type="count.matrix",
+                                 species="hs",
+                                 gene.group=c( "Rb","Mrp","other_Rb","chrM","MALAT1","chrX","chrY") ,
+                                 exp.cells=5)
+gc()
+dim(sc.dat.filtered)
+
+
+# Correlation between the features present in our single-cell reference and bulk samples
+plot.bulk.vs.sc(sc.input = sc.dat.filtered,
+                bulk.input = bulkdata, 
+                pdf.prefix = "concordance_sc_bulk"
+)
+gc()
+
+
+# Subset the reference to retain only protein coding genes
+sc.dat.filtered.pc <-  select.gene.type(sc.dat.filtered, gene.type = "protein_coding")
+gc()
+
+
+# Create the prism object
+myPrism <- new.prism(
+  reference=sc.dat.filtered.pc,
+  mixture=bulkdata,
+  input.type="count.matrix",
+  cell.type.labels = cell.type.labels,
+  cell.state.labels = cell.type.labels,
+  key='Malignant',
+  outlier.cut=0.01,
+  outlier.fraction=0.1,
+)
+gc()
+
+
+# Run BayesPrism deconvolution 
+#?run.prism 
+bp.res <- run.prism(prism = myPrism, n.cores=10)
+bp.res
+slotNames(bp.res)
+
+# Retrieve cell type fractions
+cell_fraction <- get.fraction(bp.res, which.theta = 'final', state.or.type = 'type')
+cell_fraction_df <- as.data.frame(cell_fraction)
+write_csv(cell_fraction_df, "cell_fraction_df.csv")
+
+t_cell_fraction <- t(cell_fraction)
+t_cell_fraction_df <- as.data.frame(t_cell_fraction)
+write_csv(t_cell_fraction_df, "transposed_cell_fraction_df.csv")
+
+# Save results
+save(bp.res, file = "bayesprism_results.rdata")
+
+```
+
+Can you explain the differences in cell-type proportion estimates between BayesPrism and Bisque?
+
+
+## Exercise 3: CIBERSORTx 
+
+Log in to your account at https://cibersortx.stanford.edu/ and select option 2: Impute Cell Fractions.
+Then, follow the instructions to input TPMs.
+
+
+## Exercise 4: EPIC (optional) 
+
+The Immunedeconv package is comprised of a variety of deconvolution methods. In this demonstration, we will execute EPIC.
+
+```{r}
+# Load bulk TPMs
+bulk_tpms <- readRDS("tcga_pdac_tpms.rds")
+bulk_tpms <- as.matrix(bulk_tpms)
+
+# Take a lookt at the available methods 
+deconvolution_methods
+# ?EPIC::EPIC.package
+
+# Run EPIC - input data should be a matrix
+epic_res <- EPIC(bulk = bulk_tpms, reference = TRef) #tumour reference
+
+# Explore resuts
+EPIC_results <- as.data.frame(epic_res$cellFractions)
+summary(EPIC_results)
+
+# Export csv
+write.table(EPIC_results, "epic_results.csv", sep = "\t") 
+
+# Transform data before plotting
+results_gt <- EPIC_results %>% rownames_to_column(var = "sample_id") %>% 
+                                  gather(-sample_id, key = cell_type, value = proportion) 
+glimpse(results_gt)
+#View(results_gt)
+
+# Reorder 
+ordered <- results_gt %>% mutate(cell_type = fct_reorder(cell_type, proportion))
+
+# Plot 1 
+ggplot(data = ordered, mapping = aes(x = cell_type, y = proportion, fill = cell_type)) + 
+  geom_boxplot(outlier.alpha = 0, na.rm = TRUE) + 
+  geom_point(size = 1.5, alpha = .5, position = position_jitter(seed = 1, width = .22)) + 
+               labs(title = "EPIC estimates", 
+                    x = "Cell type", y = "Proportion") + theme_minimal() + 
+                    theme(axis.text.x = element_text(angle=90)) + 
+                    scale_fill_brewer(palette = "Dark2") 
+
+
+# Plot 2 - stacked 
+p <- ggplot(results_gt, aes(x = sample_id, y = proportion, fill = cell_type)) +
+         geom_col(position = "fill") + theme_minimal() + 
+          theme(axis.text.x = element_text(angle=90)) +  
+           scale_fill_brewer(palette = "Dark2") +
+           labs(title = "EPIC", 
+                    x = "Sample", 
+                    y = "Estimated proportion") 
+  
+#ggsave(file="plot.png", height=5, width=7)
+
+
+```
+
+## Github repository
+
+Find more resources (references, links and vignettes) at the [**Github repository**](https://github.com/estefvazquez/sc_Deconvolution_course){.uri}**.**
+
+
+

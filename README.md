@@ -21,9 +21,11 @@ Omnideconv mouse https://omnideconv.org/immunedeconv/articles/detailed_example_m
 Omnideconv: https://github.com/omnideconv/omnideconv
 CIBERSORTx: https://cibersortx.stanford.edu/  
 EcoTyper: https://ecotyper.stanford.edu/carcinoma/
-SimBu simulator: https://github.com/omnideconv/SimBu
+SimBu simulator: https://github.com/omnideconv/SimBu  
 
+***
 
+## References:
 
 + Avila Cobos, F., Alquicira-Hernandez, J., Powell, J.E. et al. Benchmarking of cell type deconvolution pipelines for transcriptomics data. Nat Commun 11, 5650 (2020). https://doi.org/10.1038/s41467-020-19015-1  
 

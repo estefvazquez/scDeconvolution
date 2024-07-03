@@ -4,7 +4,7 @@
 
 June 28th 2024  
 
--Datasets and associated metadata: PDAC TCGA (downsampled)
+-Datasets and associated metadata: PDAC TCGA (bulk RNA-seq downsampled, PDAC single-cell reference)
 
 -Inference of cell-types using BayesPrism, Bisque, CIBERSORTx, and EPIC 
 
@@ -12,25 +12,22 @@ June 28th 2024
 
 ***
 
-
 ## Resources/Vignettes:  
 
 Bisque vignette: http://127.0.0.1:27074/library/BisqueRNA/doc/bisque.html  
 BayesPrism tutorial: https://www.bayesprism.org/pages/tutorial_deconvolution  
 MuSic tutorial: https://xuranw.github.io/MuSiC/articles/MuSiC.html  
-Omnideconv mouse https://omnideconv.org/immunedeconv/articles/detailed_example_mouse.html
+Omnideconv mouse https://omnideconv.org/immunedeconv/articles/detailed_example_mouse.html  
 Omnideconv: https://github.com/omnideconv/omnideconv
-CIBERSORTx: https://cibersortx.stanford.edu/
+CIBERSORTx: https://cibersortx.stanford.edu/  
 EcoTyper: https://ecotyper.stanford.edu/carcinoma/
 SimBu simulator: https://github.com/omnideconv/SimBu
 
-***
+
 
 + Avila Cobos, F., Alquicira-Hernandez, J., Powell, J.E. et al. Benchmarking of cell type deconvolution pipelines for transcriptomics data. Nat Commun 11, 5650 (2020). https://doi.org/10.1038/s41467-020-19015-1  
 
 + Huuki-Myers, L. A., Montgomery, K. D., Kwon, S. H., Cinquemani, S., Eagles, N. J., Gonzalez-Padilla, D., Maden, S. K., Kleinman, J. E., Hyde, T. M., Hicks, S. C., Maynard, K. R., & Collado-Torres, L. (2024). Benchmark of cellular deconvolution methods using a multi-assay reference dataset from postmortem human prefrontal cortex. bioRxiv : the preprint server for biology, 2024.02.09.579665. https://doi.org/10.1101/2024.02.09.579665
-  
-+ Benchmarking second-generation methods for cell-type deconvolution of transcriptomic data. Alexander Dietrich, Lorenzo Merotto, Konstantin Pelz, Bernhard Eder, Constantin Zackl, Katharina Reinisch, Frank Edenhofer, Federico Marini, Gregor Sturm, Markus List, Francesca Finotello. bioRxiv 2024.06.10.598226; doi: https://doi.org/10.1101/2024.06.10.598226
 
 + Sturm, G., Finotello, F., Petitprez, F., Zhang, J. D., Baumbach, J., Fridman, W. H., List, M., & Aneichyk, T. (2019). Comprehensive evaluation of transcriptome-based cell-type quantification methods for immuno-oncology. Bioinformatics (Oxford, England), 35(14), i436–i445. https://doi.org/10.1093/bioinformatics/btz363  
 
@@ -66,7 +63,9 @@ https://www.nature.com/articles/s43018-020-00121-4
 + Luca, B. A., Steen, C. B., Matusiak, M., Azizi, A., Varma, S., Zhu, C., Przybyl, J., Espín-Pérez, A., Diehn, M., Alizadeh, A. A., van de Rijn, M., Gentles, A. J., & Newman, A. M. (2021). Atlas of clinically distinct cell states and ecosystems across human solid tumors. Cell, 184(21), 5482–5496.e28. https://doi.org/10.1016/j.cell.2021.09.014
 
 + Alexander Dietrich, Gregor Sturm, Lorenzo Merotto, Federico Marini, Francesca Finotello, Markus List, SimBu: bias-aware simulation of bulk RNA-seq data with variable cell-type composition, Bioinformatics, Volume 38, Issue Supplement_2, September 2022, Pages ii141–ii147, https://doi.org/10.1093/bioinformatics/btac499
-https://academic.oup.com/bioinformatics/article/38/Supplement_2/ii141/6702009 
+https://academic.oup.com/bioinformatics/article/38/Supplement_2/ii141/6702009
+ 
++ Benchmarking second-generation methods for cell-type deconvolution of transcriptomic data. Alexander Dietrich, Lorenzo Merotto, Konstantin Pelz, Bernhard Eder, Constantin Zackl, Katharina Reinisch, Frank Edenhofer, Federico Marini, Gregor Sturm, Markus List, Francesca Finotello. bioRxiv 2024.06.10.598226; doi: https://doi.org/10.1101/2024.06.10.598226
 
 
 

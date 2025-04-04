@@ -2,13 +2,13 @@
 
 ***
 
-June 28th 2024  
+**EMBL-EBI course 2024**  
 
 -Datasets and associated metadata: PDAC TCGA (bulk RNA-seq downsampled, PDAC single-cell reference)
 
 -Inference of cell-types using BayesPrism, Bisque, CIBERSORTx, and EPIC 
 
--Open the sc_deconvolution.Rmd file to continue with the code. You have all the necessary R libraries and input data in your virtual machine.
+-Instructions: Open the sc_deconvolution.Rmd file to continue with the code. You have all the necessary R libraries and input data in your virtual machine.
 
 ***
 

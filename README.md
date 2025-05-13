@@ -2,7 +2,7 @@
 
 ***
 
-**EMBL-EBI course 2024**  
+**EMBL-EBI course 2025**  
 
 -Datasets and associated metadata: PDAC TCGA (bulk RNA-seq downsampled, PDAC single-cell reference)
 
@@ -22,6 +22,7 @@ Omnideconv: https://github.com/omnideconv/omnideconv
 CIBERSORTx: https://cibersortx.stanford.edu/  
 EcoTyper: https://ecotyper.stanford.edu/carcinoma/
 SimBu simulator: https://github.com/omnideconv/SimBu  
+InferCNV (scanpy plugin): https://infercnvpy.readthedocs.io/en/latest/index.html 
 
 ***
 
@@ -68,6 +69,8 @@ https://www.nature.com/articles/s43018-020-00121-4
 https://academic.oup.com/bioinformatics/article/38/Supplement_2/ii141/6702009
  
 + Benchmarking second-generation methods for cell-type deconvolution of transcriptomic data. Alexander Dietrich, Lorenzo Merotto, Konstantin Pelz, Bernhard Eder, Constantin Zackl, Katharina Reinisch, Frank Edenhofer, Federico Marini, Gregor Sturm, Markus List, Francesca Finotello. bioRxiv 2024.06.10.598226; doi: https://doi.org/10.1101/2024.06.10.598226
+
++ White, B.S., de Reyniès, A., Newman, A.M. et al. Community assessment of methods to deconvolve cellular composition from bulk gene expression. Nat Commun 15, 7362 (2024). https://doi.org/10.1038/s41467-024-50618-0
 
 
 

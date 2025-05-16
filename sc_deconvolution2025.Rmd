@@ -1,0 +1,565 @@
+---
+title: "Single-cell deconvolution methods EMBL-EBI course"
+author: "Estef Vazquez & Gabriel Pereira"
+output:
+  html_document:
+    theme: simplex
+    toc: yes
+    toc_float:
+      collapsed: true
+---
+
+```{r, setup, include=FALSE}
+
+# Load Required Libraries
+library(here)
+library(tidyverse)
+library(plotly)
+library(ggthemes)
+library(ggpubr)
+library(RColorBrewer)
+library(colorspace)
+library(cowplot)
+library(Biobase)
+library(BisqueRNA)
+suppressWarnings(library(BayesPrism))
+suppressWarnings(library(Seurat))
+
+# Double check your working directory
+getwd()
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,              
+  message = FALSE,         
+  warning = FALSE,         
+  error = FALSE,            
+  fig.width = 10,           
+  fig.height = 6,          
+  out.width = "100%",       
+  cache = TRUE,
+  dev = 'png',
+  fig.path = here("figures", "/")
+)
+
+# Create directories 
+dir.create(here("data"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("results"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("figures"), recursive = TRUE, showWarnings = FALSE)
+message("Project directories created at:")
+message("Data directory: ", here("data"))
+message("Results directory: ", here("results"))
+message("Figures directory: ", here("figures"))
+
+```
+
+This vignette provides a practical overview of second generation methods for cell-type deconvolution using transcriptomic data. We'll explore some commonly used approaches:
+
+1.  **Bisque**: A reference-based method that uses single-cell data to deconvolve bulk samples
+2.  **BayesPrism**: A Bayesian framework that accounts for cell state transitions
+3.  **CIBERSORTx**: A support vector regression approach
+4.  **InferCNV**: A method to identify copy number variations from transcriptomic data
+
+For these exercises, we'll be utilizing Pancreatic Ductal Adenocarcinoma (PDAC) data from the TCGA project, which has been downsampled for computational efficiency.
+
+
+## Data Loading
+
+Let's start by loading and examining our datasets: 1) bulk RNA-seq data, 2) single-cell reference data, and 3) clinical information.
+
+```{r load_data, cache=FALSE}
+
+# Load RDS files 
+read_rds <- function(file_path, default = NULL) {
+  tryCatch({
+    message(paste("Loading", file_path))
+    readRDS(file_path)
+  }, error = function(e) {
+    message(paste("Error loading", file_path, ":", e$message))
+    return(default)
+  })
+}
+
+# Load bulk data - raw counts 
+bulkdata <- read_rds("data/tcga_pdac_counts.rds")
+if (!is.null(bulkdata)) {
+  bulkdata <- as.matrix(bulkdata)
+  message(paste("Bulk data dimensions:", paste(dim(bulkdata), collapse=" x ")))
+}
+
+
+# Load TPMs
+tpms <- read_rds("data/tcga_pdac_tpm.rds")
+if (!is.null(tpms)) {
+  tpms <- tpms %>% rownames_to_column(var = "Gene")
+  message(paste("TPM data dimensions:", paste(dim(tpms), collapse=" x ")))
+}
+
+
+# Load single-cell Seurat object
+sobj <- read_rds("data/sc_ref_pdac_seurat.rds")
+if (!is.null(sobj)) {
+  message("Single-cell reference data:")
+  print(sobj)
+  message("Available layers:")
+  print(Layers(sobj))
+}
+
+
+# Load clinical data
+clindata <- read_rds("data/tcga_pdac_clindata.rds")
+if (!is.null(clindata)) {
+  message("Clinical data columns:")
+  print(names(clindata))
+}
+
+```
+
+## Exercise 1. Understanding Input Data
+
+-Identify each data object and determine its dimensions
+
+-How many individual cells are in the single-cell reference?
+
+-Which clinical variables are available? Is the clinical data complete?
+
+-Take a moment to explore each object
+
+
+## Exercise 2. Bisque
+
+Bisque (Bulk RNA-seq Imputation from Single-cell Expression) is a reference-based deconvolution method that leverages single-cell RNA-seq data to estimate cell-type proportions in bulk tissue samples. It accounts for variations within cell types and cross-subject heterogeneity.
+
+Preparing Input
+
+```{r bisque_preparation}
+
+# Prepare the bulk data as an ExpressionSet object
+# Bisque expects features as rows and samples as columns
+bulk.eset <- ExpressionSet(assayData = bulkdata)
+
+
+# Extract raw counts from the Seurat object
+sc_counts <- GetAssayData(sobj, layer = "counts")
+
+
+#  Prepare single-cell metadata 
+cellmeta <- sobj@meta.data
+celltype <- cellmeta[, c("cell_type", "patient")]
+colnames(celltype) <- c("cellType", "SubjectName") #renaming
+
+
+# Create AnnotatedDataFrame object for phenotype data
+df <- data.frame(labelDescription=colnames(celltype), row.names = colnames(celltype))
+sc_annot <- new("AnnotatedDataFrame", data=celltype, varMetadata=df)
+
+
+# Clean up 
+rm(cellmeta, celltype, df)
+gc()
+
+# Create ExpressionSet object for single-cell reference
+sc.eset <- ExpressionSet(assayData = as.matrix(sc_counts), phenoData = sc_annot)
+
+
+# Clean up large objects to free memory
+rm(sc_counts, sc_annot, sobj)
+gc()
+
+
+# Running Bisque Deconvolution 
+res <- BisqueRNA::ReferenceBasedDecomposition(bulk.eset, 
+                                              sc.eset, 
+                                              markers=NULL, 
+                                              use.overlap=FALSE)
+gc()
+res
+
+# Explore results
+bisque_results <- as.data.frame(res$bulk.props)
+bisque_results <- t(bisque_results) #transpose for visualization
+
+
+# Save
+saveRDS(bisque_results, 
+        here("results", "bisque_results.rds"))
+
+
+```
+
+Questions
+
+1.  How many cells are in the single-cell reference?
+
+2.  What were the most and least abundant cell types present in the data results? visualize Bisque results.
+
+3.  How might the heterogeneity within PDAC samples affect the deconvolution results? What biological features of PDAC make it challenging for cell type deconvolution?
+
+
+Hint to question 2
+
+```{r visualize_bisque, fig.height=8}
+
+# Format data 
+bisque_long <- bisque_results %>%
+  as.data.frame() %>%
+  rownames_to_column("SampleID") %>%
+  pivot_longer(-SampleID, names_to = "CellType", values_to = "Proportion") %>% glimpse()
+
+
+# Boxplot of cell type proportions
+ggplot(bisque_long, aes(x=reorder(CellType, Proportion, FUN=median), y=Proportion, fill=CellType)) +
+  geom_boxplot(outlier.shape = 21, outlier.alpha = 0.5) +
+  geom_jitter(width=0.2, size=1, alpha=0.5) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle=45, hjust=1),
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  labs(
+    title = "Cell Type Proportions Estimated by Bisque",
+    x = "Cell Type",
+    y = "Estimated Proportion"
+  ) +
+  scale_fill_brewer(palette = "Set3")
+
+
+# Summary statistics
+bisque_summary <- bisque_long %>%
+  group_by(CellType) %>%
+  summarize(
+    Mean = mean(Proportion),
+    Median = median(Proportion),
+    SD = sd(Proportion),
+    Min = min(Proportion),
+    Max = max(Proportion)
+  ) %>%
+  arrange(desc(Mean)) %>% 
+  glimpse()
+
+
+# Display table
+knitr::kable(bisque_summary, caption = "Summary of Cell Type Proportions", digits = 3)
+
+```
+
+## Exercise 3: Deconvolution using BayesPrism
+
+```{r}
+# BayesPrism expects samples as rows and genes as columns (opposite of Bisque) - (sample x gene)
+bulkdata <- as.data.frame(t(bulkdata))
+
+# Explore object
+dim(bulkdata)
+head(rownames(bulkdata)) #samples as rownames
+head(colnames(bulkdata)) #genes as colnames
+
+# clinical data
+glimpse(clindata)
+
+# Seurat object
+sobj
+#colnames(sobj)
+#nrow(sobj) #18.5k
+#Features(sobj)
+#Layers(sobj)
+
+# Retrievesingle-cell metadata
+cellmeta <- sobj@meta.data
+
+# Rename cell_meta columns
+cell_meta <- cellmeta %>% dplyr::rename("cell.type.labels" = "cell_type",
+                                         "cell.state.labels" = "cell_state") 
+glimpse(cell_meta)
+
+
+# If you have different levels of granularity for cell annotation, you can use them But, rare cell types or cell states might be challenging to estimate
+
+# As a start we will run at a higher level of cell annotation
+cell.type.labels <- cell_meta$cell.type.labels
+cell.state.labels <- cell_meta$cell.state.labels
+cell.type.labels <- as.character(cell.type.labels)
+cell.state.labels <- as.character(cell.state.labels)
+
+
+# cell.type.labels will be a character vector of the same length as nrow(sc.dat)
+# Explore the cell type labels
+sort(table(cell.type.labels))
+
+# cell.state.labels is a character vector of the same length as nrow(sc.dat) 
+sort(table(cell.state.labels))
+
+# Create df with cell annotation
+cell_annot <- as.data.frame(table(cbind.data.frame(cell.state.labels, cell.type.labels)))
+glimpse(cell_annot)
+
+
+# Extract the counts from the seurat object
+sc.dat <- GetAssayData(sobj, assay='RNA', slot='counts')
+dim(sc.dat)
+
+
+
+# Convert the sparse matrix to a dense matrix
+sc.dat <- as.matrix(sc.dat) 
+gc()
+colnames(sc.dat)
+rownames(sc.dat)
+
+
+# Before deconvolution, you can check for correlation between cell types
+# Plot pairwise correlation matrix 
+plot.cor.phi (input=sc.dat,
+              input.labels=cell.type.labels,
+              title="cell state correlation",
+              pdf.prefix = "cor_matrix",
+              cexRow=0.5, cexCol=0.5,
+              margins=c(4,4)
+)
+
+
+plot.cor.phi (input=sc.dat,
+              input.labels=cell.state.labels,
+              title="cell state correlation",
+              pdf.prefix = "cor_matrix_cell_states",
+              cexRow=0.4, cexCol=0.4,
+              margins=c(5,5)
+)
+
+
+
+# Visualize distribution of outlier genes from scRNA-seq reference
+sc.stat <- plot.scRNA.outlier(
+  input=sc.dat, 
+  cell.type.labels=cell.type.labels,
+  species="hs", 
+  return.raw=TRUE, 
+  pdf.prefix = "outlier_sc"
+)
+
+
+# Visualize outlier genes from bulk RNA-seq
+bk.stat <- plot.bulk.outlier(
+  bulk.input=bulkdata, 
+  sc.input=sc.dat, #make sure colnames are gene symbol or ENSEMBL ID
+  cell.type.labels=cell.type.labels,
+  species="hs", 
+  return.raw=TRUE,
+  pdf.prefix = "outlier_bulk" 
+)
+
+
+
+# Filter matrix removing features that add noise 
+sc.dat.filtered <- cleanup.genes(input=sc.dat,
+                                 input.type="count.matrix",
+                                 species="hs",
+                                 gene.group=c( "Rb","Mrp","other_Rb","chrM","MALAT1","chrX","chrY") ,
+                                 exp.cells=5)
+
+dim(sc.dat)
+dim(sc.dat.filtered)
+
+
+#free memory 
+gc()
+
+
+# Plot correlation between the features present in single-cell reference and bulk samples
+plot.bulk.vs.sc(sc.input = sc.dat.filtered,
+                bulk.input = bulkdata, 
+                pdf.prefix = "concordance_sc_bulk")
+gc()
+
+
+# Subset the reference to retain protein coding genes only
+sc.dat.filtered.pc <-  select.gene.type(sc.dat.filtered, gene.type = "protein_coding")
+dim(sc.dat.filtered.pc)
+
+
+# Create PRISM object
+myPrism <- new.prism(
+  reference=sc.dat.filtered.pc,
+  mixture=bulkdata,
+  input.type="count.matrix",
+  cell.type.labels = cell.type.labels,
+  cell.state.labels = cell.type.labels,
+  key='Malignant',
+  outlier.cut=0.01,
+  outlier.fraction=0.1,
+)
+gc()
+
+
+# Run BayesPrism deconvolution 
+#?run.prism 
+bp.res <- run.prism(prism = myPrism, n.cores=10) # takes approximately 6 minutes
+bp.res
+
+
+# Retrieve cell type fractions
+bayes_results <- get.fraction(bp.res, which.theta = 'final', state.or.type = 'type')
+bayes_results_df <- as.data.frame(bayes_results)
+
+# Save
+saveRDS(bayes_results_df, 
+        here("results", "bayesprism_results.rds"))
+
+write_csv(bayes_results_df, 
+        here("results", "bayesprism_results.csv"))
+
+
+# Transpose if required
+bayes_res <- t(bayes_results_df)
+bayes_res <- as.data.frame(bayes_res)
+
+
+```
+
+Questions
+
+1.  Did you get an error? Why is the transposition step important?
+
+2.  Which are the main cell types that are represented in the single-cell reference?
+
+3.  You visualized correlations between cell types. How would you interpret high correlations between certain cell types, and how might this affect deconvolution accuracy?
+
+4.  BayesPrism specifically asks for a "key" malignant cell type. How does this approach differ from other deconvolution methods, and what advantages might it offer when studying tumor samples?
+
+
+## Exercise 4: CIBERSORTx
+
+Log in to your account at <https://cibersortx.stanford.edu/> and select option 2: Impute Cell Fractions. Then, follow the instructions to input TPMs. Generally, you will need to do this steps:
+
+1.  Formatting your input file
+
+2.  Uploading your files (pulldown menu): the signature matrix (LM22 for this example) and your bulk expression file ("tpms_cibersortx.tsv"). Press the green button “+ add files”, find the files, name them and select the file type.
+
+3.  Running CIBERSORTx: menu –\> Run CIBERSORTx. Click option 2. "Impute Cell Fractions”. For the Mixture file select your tpms_cibersortx.tsv file (you can find it in the github repository).  Run and download your output file. You can make statistics and further analyse these results.
+
+
+
+## Exercise 5: CNV and cell type composition relationship
+
+```{r}
+# We will use pre-computed CNV scores (inferCNV)
+# Load scores
+cnvs <- read_csv("scref_metadata_new.csv")
+glimpse(cnvs)
+
+
+# Summary statistics of CNV scores by cell type
+cnv_summary <- cnvs %>%
+  group_by(cell_type) %>%
+  summarize(
+    mean_cnv = mean(cnv_score),
+    median_cnv = median(cnv_score),
+    sd_cnv = sd(cnv_score),
+    n = n()
+  ) %>%
+  arrange(desc(mean_cnv))
+
+print(cnv_summary)
+
+
+# UMAP plot
+ggplot(cnvs, aes(x = UMAP1, y = UMAP2, color = cnv_score)) +
+  geom_point(size = 0.5, alpha = 0.7) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  labs(title = "CNV Score Distribution on UMAP", color = "CNV Score")
+
+
+# Subset malignant cells  
+malignant_cells <- cnvs %>% 
+  filter(grepl("Malignant", New_label))
+
+
+#  Visualize CNV within malignant cells
+ggplot(malignant_cells, aes(x = UMAP1, y = UMAP2, color = New_label)) +
+  geom_point(size = 1) +
+  theme_classic() + 
+  labs(title = "High vs Low CNV Malignant Cells on UMAP", color = "CNV Group")
+
+
+# Now we will link CNV patterns with cellular composition
+glimpse(cnvs)
+glimpse(bayes_results_df)
+bayes_results_df <- bayes_results_df %>% rownames_to_column(var = "sample") %>% glimpse()
+
+
+# Calculate average CNV scores by cell type 
+cell_type_cnv <- cnvs %>%
+  group_by(cell_type) %>%
+  summarize(
+    mean_cnv = mean(cnv_score),
+    median_cnv = median(cnv_score),
+    sd_cnv = sd(cnv_score),
+    n_cells = n()
+  )
+
+
+# Using deconvolution results, calculate average proportions of each cell type across samples
+bulk_cell_prop <- bayes_results_df %>%
+  select(-sample) %>%
+  summarize(across(everything(), list(mean = mean, sd = sd))) %>%
+  pivot_longer(
+    everything(),
+    names_to = c("cell_type", ".value"),
+    names_pattern = "(.+)_(.+)"
+  )
+
+# Take a look
+glimpse(cell_type_cnv)
+glimpse(bulk_cell_prop)
+
+
+# Merge datasets
+integrated_cell_types <- cell_type_cnv %>%
+  left_join(bulk_cell_prop, by = "cell_type") %>% 
+  glimpse()
+
+
+# Visualize CNV vs cell type abundance relationship
+ggplot(integrated_cell_types, aes(x = mean_cnv, y = mean)) +
+  geom_point(aes(size = n_cells), alpha = 0.7) +
+  geom_text(aes(label = cell_type), vjust = -1, size = 3) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue", alpha = 0.2) +
+  scale_size_continuous(name = "Number of cells in reference") +
+  theme_classic() +
+  labs(title = "Relationship Between Cell Type CNV and Cell Type Abundance",
+       x = "Mean CNV Score in Single-cell Data",
+       y = "Mean Cell Type Proportion in Bulk Data") +
+  # Add correlation statistics
+  annotate("text", x = min(integrated_cell_types$mean_cnv), 
+           y = max(integrated_cell_types$mean),
+           label = paste("Pearson correlation:", 
+                         round(cor(integrated_cell_types$mean_cnv, 
+                                   integrated_cell_types$mean, 
+                                   method = "pearson"), 3)),
+           hjust = 0, vjust = 1)
+```
+
+
+Questions:
+
+1. Do you observe a relationship between CNV burden and cellular composition? Does that make biological sense?
+
+2. Why stromal cells might be abundant despite lower CNV scores?
+
+
+
+## Optional: Explore the Omnideconv package
+
+https://github.com/omnideconv/omnideconv
+```{r}
+library(omnideconv)
+deconvolution_methods
+```
+
+
+## Github repository
+
+Find more resources (references, links and vignettes) at the [**Github repository**](https://github.com/estefvazquez/sc_Deconvolution_course){.uri}**.**
+

@@ -6,9 +6,9 @@
 
 -Datasets and associated metadata: PDAC TCGA (bulk RNA-seq downsampled, PDAC single-cell reference)
 
--Inference of cell-types using BayesPrism, Bisque, CIBERSORTx, and EPIC 
+-Inference of cell type composition using BayesPrism, Bisque, and CIBERSORTx.
 
--Instructions: Open the sc_deconvolution.Rmd file to continue with the code. You have all the necessary R libraries and input data in your virtual machine.
+-Instructions: Open the sc_deconvolution2025.Rmd file to continue with the code. You have all the necessary libraries and input data in your virtual machine and in the repository.
 
 ***
 

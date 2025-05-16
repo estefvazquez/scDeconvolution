@@ -17,12 +17,11 @@
 
 Bisque vignette: http://127.0.0.1:27074/library/BisqueRNA/doc/bisque.html  
 BayesPrism tutorial: https://www.bayesprism.org/pages/tutorial_deconvolution  
-MuSic tutorial: https://xuranw.github.io/MuSiC/articles/MuSiC.html  
-Omnideconv mouse https://omnideconv.org/immunedeconv/articles/detailed_example_mouse.html  
 Omnideconv: https://github.com/omnideconv/omnideconv
 CIBERSORTx: https://cibersortx.stanford.edu/  
 EcoTyper: https://ecotyper.stanford.edu/carcinoma/
 SimBu simulator: https://github.com/omnideconv/SimBu  
+MuSic tutorial: https://xuranw.github.io/MuSiC/articles/MuSiC.html  
 InferCNV (scanpy plugin): https://infercnvpy.readthedocs.io/en/latest/index.html  
 
 
@@ -72,6 +71,8 @@ https://academic.oup.com/bioinformatics/article/38/Supplement_2/ii141/6702009
 + Benchmarking second-generation methods for cell-type deconvolution of transcriptomic data. Alexander Dietrich, Lorenzo Merotto, Konstantin Pelz, Bernhard Eder, Constantin Zackl, Katharina Reinisch, Frank Edenhofer, Federico Marini, Gregor Sturm, Markus List, Francesca Finotello. bioRxiv 2024.06.10.598226; doi: https://doi.org/10.1101/2024.06.10.598226
 
 + White, B.S., de Reyniès, A., Newman, A.M. et al. Community assessment of methods to deconvolve cellular composition from bulk gene expression. Nat Commun 15, 7362 (2024). https://doi.org/10.1038/s41467-024-50618-0
+
++ Saltz J, Gupta R, Hou L, Kurc T, Singh P, Nguyen V, Samaras D, Shroyer KR, Zhao T, Batiste R, Van Arnam J; Cancer Genome Atlas Research Network; Shmulevich I, Rao AUK, Lazar AJ, Sharma A, Thorsson V. Spatial Organization and Molecular Correlation of Tumor-Infiltrating Lymphocytes Using Deep Learning on Pathology Images. Cell Rep. 2018 Apr 3;23(1):181-193.e7. doi: 10.1016/j.celrep.2018.03.086. PMID: 29617659; PMCID: PMC5943714.
 
 
 

@@ -1,6 +1,6 @@
 # **Single-cell deconvolution methods - practical session**  
 
-***
+
 
 **EMBL-EBI course 2025**  
 
@@ -8,10 +8,11 @@
 
 -Inference of cell type composition using BayesPrism, Bisque, and CIBERSORTx.
 
--Instructions: Open the sc_deconvolution2025.Rmd file to continue with the code. You have all the necessary libraries and input data in your virtual machine and in the repository.
+-Instructions: Open the sc_deconvolution2025.Rmd file to continue with the code. You have all the necessary libraries and input data in your virtual machine and in the repository.  
 
-***
 
+
+  
 ## Resources/Vignettes:  
 
 Bisque vignette: http://127.0.0.1:27074/library/BisqueRNA/doc/bisque.html  
@@ -22,10 +23,10 @@ Omnideconv: https://github.com/omnideconv/omnideconv
 CIBERSORTx: https://cibersortx.stanford.edu/  
 EcoTyper: https://ecotyper.stanford.edu/carcinoma/
 SimBu simulator: https://github.com/omnideconv/SimBu  
-InferCNV (scanpy plugin): https://infercnvpy.readthedocs.io/en/latest/index.html 
+InferCNV (scanpy plugin): https://infercnvpy.readthedocs.io/en/latest/index.html  
 
-***
 
+  
 ## References:
 
 + Avila Cobos, F., Alquicira-Hernandez, J., Powell, J.E. et al. Benchmarking of cell type deconvolution pipelines for transcriptomics data. Nat Commun 11, 5650 (2020). https://doi.org/10.1038/s41467-020-19015-1  

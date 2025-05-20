@@ -1,0 +1,590 @@
+---
+title: "Single-cell deconvolution methods EMBL-EBI course"
+author: "Estef Vazquez & Gabriel Pereira"
+output:
+  html_document:
+    theme: simplex
+    toc: yes
+    toc_float:
+      collapsed: true
+---
+
+```{r, setup, include=FALSE}
+# Load Required Libraries
+library(tidyverse)
+library(ggpubr)
+library(ggplot2)
+library(tibble)
+library(Seurat)
+library(BisqueRNA)
+library(Biobase)
+library(BayesPrism)
+library(DWLS) # Comment if you don't have those libraries
+library(MAST) # Comment if you don't have those libraries
+library(omnideconv) # Comment if you don't have those libraries
+```
+
+
+```{r Loading results}
+# Make a simple stacked barplot for visualization
+# Add method to each patient x cellfraction matrix/dataframe
+# We also performed deconvolution with DWLS and CibersortX
+# This analysis was performed using 50 patients instead of 20
+
+# 1. Load data (You can directly download your .csv or RDS file) # Here we are starting from RDS files
+#Bisque
+bisque_estimates <- readRDS('data/bisque_results_TCGA.rds')
+bisque_estimates <- as.data.frame(t(bisque_estimates$bulk.props)) # We select the inferred bulk proportions and transpose the matrix so each row is a patient
+bisque_estimates$Method <- "BisqueRNA"
+
+#BayesPrism
+bp_estimates <- readRDS('data/bayes_results_TCGA.rds')
+bp_estimates <- as.data.frame(get.fraction(bp_estimates, which.theta = 'final', state.or.type = 'state'))
+bp_estimates$Method <- "BayesPrism"
+
+#DWLS
+dwls_estimates <- readRDS('data/DWLS_results_TCGA.rds')
+dwls_estimates <- as.data.frame(dwls_estimates)
+dwls_estimates[dwls_estimates < 0] <- 0 # For some reason unknown, DLWS have few negative values (which is not expected considering that output should be cell fractions). In this step, we set all negative values to 0
+dwls_estimates <- sweep(dwls_estimates, 1, rowSums(dwls_estimates), FUN = "/") # In this step, we normalize the dataframe and now each row sums up to 1
+dwls_estimates$Method <- "DWLS"
+
+#CibersortX
+cibersortx_estimates <- read.csv('data/cibersortx_results_TCGA.csv', row.names = 1) # We have additional columns from cibersortX such as p-value, correlation and RMSE
+# For now let's remove these columns. In the benchmark Rmd, we'll perform correlation and RMSE to evaluate the performance of each method in different scenarios
+cibersortx_estimates <- cibersortx_estimates[1:21]
+cibersortx_estimates$Method <- "CibersortX"
+```
+
+
+```{r Merging results into a single dataframe}
+# 2. Merge results into a single dataframe
+# Patients as rows and fractions as columns
+# Make sure celltypes have the same name. Bisque and Bayes accept special characters, but DWLS and CibersortX doesn't. Rename "Mast cells' to 'Mast' to avoid errors
+bisque_estimates <- bisque_estimates %>% rename("Mast" = "Mast cells")
+bp_estimates <- bp_estimates %>% rename("Mast" = "Mast cells")
+
+# 3. Stacked barplot per Method
+
+stacked_df <- rbind(bisque_estimates, bp_estimates, dwls_estimates, cibersortx_estimates) # Patients as rows and fractions as columns
+stacked_df <- stacked_df %>%
+  pivot_longer(cols = c("Malignant","Macrophages","CD8_T","CD4_T","Cycling_T","Neutrophils","NK","CAF",
+                        "Monocytes","Dendritic","Mast","Vascular","Endothelial","Endocrine",
+                        "B","Plasma","Stellate","Schwann","Treg","Ductal","Acinar"), 
+               names_to = "cell_type", 
+               values_to = "fraction")
+
+stacked_df <- stacked_df %>%
+  group_by(Method, cell_type) %>%
+  summarise(mean_fraction = mean(fraction), .groups = 'drop')
+
+ggplot(stacked_df, aes(x = Method, y = mean_fraction, fill = cell_type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Cell Proportions by Method",
+       x = "Method",
+       y = "Mean Proportion",
+       fill = "Cell Type") +
+  theme_minimal()+scale_fill_manual(values = c("Acinar" = "royalblue",
+                                               "B" = "#F72585",
+                                               "Stellate" = "darkorange",
+                                               "Vascular" = "darkred",
+                                               "CAF" = "#986960",
+                                               "Malignant" = "#7209B7",
+                                               "Dendritic" = "dimgray",
+                                               "Macrophages" = "green",
+                                               "Endothelial" = "red",
+                                               "Neutrophils" = "thistle",
+                                               "Monocytes" = "darkseagreen",
+                                               "CD4_T" = "cornflowerblue",
+                                               "CD8_T" = "darkgreen",
+                                               "NK" = "darkgoldenrod",
+                                               "Cycling_T" = "black",
+                                               "Treg" = "navy",
+                                               "Ductal" = "lightcoral",
+                                               "Plasma" = "orchid",
+                                               "Mast" = "limegreen",
+                                               "Schwann" = "darkturquoise",
+                                               "Endocrine" = "rosybrown"))
+
+
+# 4. Stacked barplot per CNV_status
+
+```
+
+
+```{r Correlating cell type estimations with tumor purity and CNV_status}
+# Load clinical data --> This clinical metadata contains information for CNV_status (HIGH or LOW); ABSOLUTE purity score was available in the clinical metadata downloaded from TCGAbiolinks
+# ABSOLUTE infers tumor purity and malignant cell ploidy directly from analysis of somatic DNA alterations (for more details check https://pmc.ncbi.nlm.nih.gov/articles/PMC4383288/)
+# stromal and immune columns represent scores from the ESTIMATE package that infers the levels of stromal and immune cells presents in bulk RNA data
+# ESTIMATE_purity score represents the levels of malignant cell fraction (similar to the ABSOLUTE algorithm, but this method was developed for bulk RNA)
+# As expected, immune score negatively correlates with ESTIMATE_purity score
+
+# 5. Correlate with tumor purity
+
+clindata <- readRDS('data/clinical_metadata_2025.rds')
+
+# Rename patient barcodes to match clinical data
+
+rownames(bisque_estimates) <- substr(rownames(bisque_estimates), 1, 12)
+rownames(bp_estimates) <- substr(rownames(bp_estimates), 1, 12)
+rownames(dwls_estimates) <- substr(rownames(dwls_estimates), 1, 12)
+rownames(cibersortx_estimates) <- substr(rownames(cibersortx_estimates), 1, 12)
+
+# Merge clinical data with cell fractions to correlate tumor purity with malignant cell estimation from deconvolution
+
+bisque_estimates <- cbind(bisque_estimates, clindata)
+bp_estimates <- cbind(bp_estimates, clindata)
+dwls_estimates <- cbind(dwls_estimates, clindata)
+cibersortx_estimates <- cbind(cibersortx_estimates, clindata)
+
+purity_bisque <- na.omit(bisque_estimates) # Remove one patient that has CNV_status as 'NA'
+purity_bayes <- na.omit(bp_estimates) # Remove one patient that has CNV_status as 'NA'
+purity_dwls <- na.omit(dwls_estimates) # Remove one patient that has CNV_status as 'NA'
+purity_cibsersortx <- na.omit(cibersortx_estimates) # Remove one patient that has CNV_status as 'NA'
+
+# Make scatter plot for tumor purity and malignant estimation
+
+gg1 <- ggplot(purity_bisque, aes(x = ABSOLUTE_purity, y = Malignant)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add a linear regression line
+  labs(title = "Correlation between Tumor Purity and Malignant Cell Fraction - BisqueRNA",
+       x = "Tumor Purity",
+       y = "Malignant Cell Fraction") +
+  theme_minimal()+
+  stat_cor(method = "pearson", label.x = 0.05, label.y = 0.95, 
+           aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")))
+
+gg2 <- ggplot(purity_bayes, aes(x = ABSOLUTE_purity, y = Malignant)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add a linear regression line
+  labs(title = "Correlation between Tumor Purity and Malignant Cell Fraction - BayesPrism",
+       x = "Tumor Purity",
+       y = "Malignant Cell Fraction") +
+  theme_minimal()+
+  stat_cor(method = "pearson", label.x = 0.05, label.y = 0.95, 
+           aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")))
+
+gg3 <- ggplot(purity_dwls, aes(x = ABSOLUTE_purity, y = Malignant)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add a linear regression line
+  labs(title = "Correlation between Tumor Purity and Malignant Cell Fraction - DWLS",
+       x = "Tumor Purity",
+       y = "Malignant Cell Fraction") +
+  theme_minimal()+
+  stat_cor(method = "pearson", label.x = 0.05, label.y = 0.95, 
+           aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")))
+
+gg4 <- ggplot(purity_cibsersortx, aes(x = ABSOLUTE_purity, y = Malignant)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +  # Add a linear regression line
+  labs(title = "Correlation between Tumor Purity and Malignant Cell Fraction - CibersortX",
+       x = "Tumor Purity",
+       y = "Malignant Cell Fraction") +
+  theme_minimal()+
+  stat_cor(method = "pearson", label.x = 0.05, label.y = 0.95, 
+           aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")))
+
+gg1+gg2+gg3+gg4 # Side by side plot
+
+# Which method showed a stronger correlation with purity scores ?
+# What else could we do with this data ?
+# For more details keep an eye on the github repo for any updates on downstream analysis and benchmarking your own deconvolution
+```
+
+
+```{r Benchmark - Downsampling for deconvolution}
+# Benchmarking all four methods with pseudobulk data (Steele's PDAC dataset)
+# Limited number of cells per cluster (maximum of 200 cells)
+# We retained only protein-coding genes and used the same matrix across all methods
+# Load Seurat and downsample object
+
+sobj <- readRDS("data/sc_ref_pdac_seurat.rds")
+
+# Subsampling Seurat to 200 cells per cluster
+
+max_cells_per_celltype = 200
+sampled.metadata <- sobj@meta.data %>%
+  rownames_to_column(., 'barcode') %>%
+  group_by(., cell_type) %>% 
+  nest() %>%            
+  mutate(n =  map_dbl(data, nrow)) %>%
+  mutate(n = min(n, max_cells_per_celltype)) %>%
+  ungroup() %>% 
+  mutate(samp = map2(data, n, sample_n)) %>% 
+  select(-data) %>%
+  unnest(samp)
+
+sc_sub <- subset(sobj, cells = sampled.metadata$barcode)
+gc()
+dim(sc_sub)
+```
+
+
+```{r Benchmark - Generating pseudobulk}
+# Generating pseudobulk data (for CibersortX we performed CPM normalization on both scRNA and bulk) / (DWLS requires raw counts to build the signature matrix and expects bulk data to be CPM or TPM. Here we used CPM values)
+
+# Pseudobulk input for ground truth validation
+sobj$orig.ident <- sobj$patient
+sobj <- SetIdent(sobj, value = sobj$orig.ident)
+dfMeta <- mat@meta.data
+dfMeta[, "barcode"] <- rownames(dfMeta)
+sampleIDs <- unique(dfMeta$orig.ident)
+
+dfAllSum <- NULL
+for(sampleID in sampleIDs)
+{
+  cell_barcodes <- dfMeta[dfMeta[, "orig.ident"] == sampleID, "barcode"]
+  sSample <- subset(mat, cells = cell_barcodes)
+  message(paste0("Extracted ", length(cell_barcodes), " cells and ", nrow(sSample), " genes from SAMPLE: ", sampleID))
+  
+  # get summed gene counts
+  dfSum <- as.data.frame(rowSums(sSample@assays$RNA@counts))
+  colnames(dfSum) <- c(sampleID)
+  dfSum[, "gene"] <- rownames(dfSum)
+  if(is.null(dfAllSum)) {
+    dfAllSum <- dfSum
+  } else {
+    dfAllSum <- dplyr::left_join(dfAllSum, dfSum, by = "gene")
+  }
+}
+# rearrange columns to fit gene by sample matrix
+dfAllSum <- dfAllSum[, c("gene", sampleIDs)]
+rownames(dfAllSum) <- dfAllSum$gene
+dfAllSum$gene <- NULL
+dfAllSum <- as.matrix(dfAllSum)
+bulkdata <- dfAllSum
+```
+
+
+```{r Benchmark - Input for CibersortX}
+# Normalize scRNA, pseudobulk and bulkdata to CPM for CibersortX
+counts.matrix <- as.matrix(sc_sub@assays$RNA@counts)
+
+lib_sizes <- colSums(counts.matrix)
+
+# Perform CPM normalization on scRNA
+counts_cpm <- t(t(counts.matrix) / lib_sizes) * 1e6
+gc()
+dim(counts_cpm)
+
+cell.type.annotations <- sc_sub$cell_type
+colnames(counts_cpm) <- cell.type.annotations
+
+# Add the rownames (genes) into a new column
+counts_cpm <- as.data.frame(counts_cpm)
+counts_cpm$GeneSymbol <- rownames(counts_cpm)
+
+# Reorder so that GeneSymbol is the first column
+counts_cpm <- counts_cpm[, c(ncol(counts_cpm), 1:(ncol(counts_cpm)-1))]
+counts_cpm <- as.matrix(counts_cpm)
+colnames(counts_cpm) <- c("GeneSymbol", cell.type.annotations)
+write.table(counts_cpm, file = 'data/cibersort_ref.txt', sep = "\t", row.names = F)
+
+# Perform CPM normalization on pseudobulk
+lib_sizes <- colSums(bulkdata)
+bulkdata_cpm <- t(t(bulkdata) / lib_sizes) * 1e6
+
+# Add the rownames (genes) into a new column
+bulkdata_cpm <- as.data.frame(bulkdata_cpm)
+bulkdata_cpm$GeneSymbol <- rownames(bulkdata_cpm)
+
+# Reorder so that GeneSymbol is the first column
+bulkdata_cpm <- bulkdata_cpm[, c(ncol(bulkdata_cpm), 1:(ncol(bulkdata_cpm)-1))]
+bulkdata_cpm <- as.matrix(bulkdata_cpm)
+write.table(bulkdata_cpm, file = 'data/cibersort_mixture.txt', sep = "\t", row.names = F)
+
+# CibersortX expects tab delimited files and has a quota of 1GB at total. That was the reason why we needed to subset our data. 
+# To perform the analysis, first log into your account, click on the menu tab, select upload files and upload the .txt files.
+# For cibersort_ref.txt file select single-cell reference matrix on "file type"
+# For cibersort_mixture.txt file select mixture (bulk) on "file type"
+# After upload, go to run CibersortX and select Create Signature Matrix. Analysis mode CUSTOM / Input data type scRNA-seq / Select the reference matrix and run with default parameters
+# Output from this step is a heatmap and the signature matrix
+# Next go to impute cell fractions. Select the signature matrix generated previously by cibersortX. Mixture file is our bulk or pseudobulk. Enable batch correction and run it using s-mode (our signature matrix was generated from 10x data). Permutations set to 1000
+```
+
+
+```{r Benchmark - Running DWLS}
+# For DWLS, we installed from the omnideconv branch. They've made a few changes to the source which significantly improved run time
+
+# Preparing input for DWLS
+#counts.matrix <- as.matrix(sc_sub@assays$RNA@counts) # If you already have counts.matrix in your environment you can skip this step
+
+# Rename Mast cells to Mast. Always check your cell annotations before running DWLS. Otherwise it will return an error (https://github.com/omnideconv/omnideconv/issues/40)
+
+sc_sub@meta.data <- sc_sub@meta.data %>%
+  mutate(cell_type = ifelse(cell_type == "Mast cells", "Mast", cell_type))
+cell.type.annotations <- sc_sub$cell_type
+
+# DWLS handles normalization, performs differential expression with MAST and the output is a normalized signature matrix (rows = genes; columns = cell type)
+signature.matrix.dwls <- omnideconv::build_model(single_cell_object = counts.matrix,
+                                                 cell_type_annotations = cell.type.annotations,
+                                                 method = 'dwls',
+                                                 dwls_method = 'mast_optimized')
+gc()
+saveRDS(signature.matrix.dwls, file = 'data/sig_mat_dwls.rds')
+# You could see that the pseudobulk data created earlier contains an additional column for GeneSymbol. It was necessary for cibersort.
+# Now we'll just remove it and run DWLS
+bulkdata_cpm$GeneSymbol <- NULL
+deconvolution.results.dwls <- deconvolute(bulk_gene_expression = bulkdata_cpm,
+                                          model = signature.matrix.dwls,
+                                          method='dwls',
+                                          dwls_submethod = 'DampenedWLS')
+gc()
+saveRDS(deconvolution.results.dwls, file = 'data/results_dwls.rds')
+```
+
+
+```{r Benchmark - Comparing results}
+# Get fractions from Seurat object
+
+sobj <- readRDS('data/sc_ref_pdac_seurat.rds')
+metadata <- sobj@meta.data
+
+# Rename Mast cells to Mast
+metadata <- metadata %>%
+  mutate(cell_type = ifelse(cell_type == "Mast cells", "Mast", cell_type))
+
+ct_frac <- table(metadata$cell_type, metadata$patient)
+ct_frac <- as.data.frame(ct_frac)
+ct_frac$Var1 <- as.character(ct_frac$Var1)
+ct_frac$Var2 <- as.character(ct_frac$Var2)
+ct_frac = ct_frac %>% rename(Cell_Type = "Var1", Patient = "Var2") %>%
+  group_by(Patient) %>%
+  mutate(Fraction = Freq / sum(Freq))%>%
+  ungroup()
+ct_frac$Method <- "ground_truth"
+
+ggplot(ct_frac, aes(x = Patient, y = Fraction, fill = Cell_Type)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Acinar" = "royalblue",
+                                "B" = "#F72585",
+                                "Stellate" = "darkorange",
+                                "Vascular" = "darkred",
+                                "CAF" = "#986960",
+                                "Malignant" = "#7209B7",
+                                "Dendritic" = "dimgray",
+                                "Macrophages" = "green",
+                                "Endothelial" = "red",
+                                "Neutrophils" = "thistle",
+                                "Monocytes" = "darkseagreen",
+                                "CD4_T" = "cornflowerblue",
+                                "CD8_T" = "darkgreen",
+                                "NK" = "darkgoldenrod",
+                                "Cycling_T" = "black",
+                                "Treg" = "navy",
+                                "Ductal" = "lightcoral",
+                                "Plasma" = "orchid",
+                                "Mast" = "limegreen",
+                                "Schwann" = "darkturquoise",
+                                "Endocrine" = "rosybrown"))+
+  labs(x = "Sample", y = "Fraction", fill = "Cell Type") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+
+```{r Benchmark - Merging results}
+# Load deconvolution results
+
+benchmark_bisque <- readRDS('data/benchmark_bisque.rds')
+benchmark_bisque <- as.data.frame(t(benchmark_bisque$bulk.props))
+
+benchmark_bayes <- readRDS('data/benchmark_bayes.rds')
+benchmark_bayes <- as.data.frame(get.fraction(benchmark_bayes, which.theta = 'final', state.or.type = 'state'))
+
+benchmark_dwls <- readRDS('data/benchmark_dwls.rds')
+benchmark_dwls <- as.data.frame(benchmark_dwls) # For some reason, we do have negative values as output. So we are going to set negative values to 0 and renormalize data
+benchmark_dwls[benchmark_dwls < 0] <- 0
+benchmark_dwls <- sweep(benchmark_dwls, 1, rowSums(benchmark_dwls), FUN = "/")
+
+benchmark_cibersortx <- read.csv('data/benchmark_cibersortx.csv', row.names = 1)
+benchmark_cibersortx <- benchmark_cibersortx[1:21]
+
+# Renaming if necessary
+benchmark_bayes <- benchmark_bayes %>% rename("Mast cells" = "Mast")
+benchmark_bisque <- benchmark_bisque %>% rename("Mast cells" = "Mast")
+
+# Here we'll create a new column called Method
+df_bayes <- as.data.frame(benchmark_bayes) %>%
+  tibble::rownames_to_column("sample") %>%
+  pivot_longer(cols = -sample, names_to = "cell_type", values_to = "fraction")
+df_bayes <- df_bayes %>%
+  dplyr::rename(
+    Patient = sample,
+    Percent = fraction,
+    Cell_Type = cell_type)
+df_bayes$Method <- "BayesPrism"
+
+
+df_bisque <- as.data.frame(benchmark_bisque) %>%
+  tibble::rownames_to_column("sample") %>%
+  pivot_longer(cols = -sample, names_to = "cell_type", values_to = "fraction")
+df_bisque <- df_bisque %>%
+  dplyr::rename(
+    Patient = sample,
+    Percent = fraction,
+    Cell_Type = cell_type)
+df_bisque$Method <- "BisqueRNA"
+
+
+df_cibersort <- as.data.frame(benchmark_cibersortx) %>%
+  tibble::rownames_to_column("sample") %>%
+  pivot_longer(cols = -sample, names_to = "cell_type", values_to = "fraction")
+df_cibersort <- df_cibersort %>%
+  dplyr::rename(
+    Patient = sample,
+    Percent = fraction,
+    Cell_Type = cell_type)
+df_cibersort$Method <- "CibersortX"
+
+
+df_dwls <- as.data.frame(benchmark_dwls) %>%
+  tibble::rownames_to_column("sample") %>%
+  pivot_longer(cols = -sample, names_to = "cell_type", values_to = "fraction")
+df_dwls <- df_dwls %>%
+  dplyr::rename(
+    Patient = sample,
+    Percent = fraction,
+    Cell_Type = cell_type)
+df_dwls$Method <- "DWLS"
+
+# Merging results with ground truth fractions from scRNA data
+merged_df <- rbind(df_bayes, df_bisque, df_cibersort, df_dwls, ct_frac)
+# Explore the data
+View(merged_df) # You can see that we have a long dataframe. Next we'll prepare this dataframe for better exploration and visualization
+```
+
+
+```{r Benchmark - Comparing results}
+# Pivot wider to get ground_truth and deconvolution estimates side-by-side
+df_wide <- merged_df %>%
+  pivot_wider(names_from = Method, values_from = Fraction)
+
+# Function to calculate RMSE values
+calculate_rmse <- function(predicted, actual) {
+  sqrt(mean((predicted - actual)^2, na.rm = TRUE))
+}
+
+results <- df_wide %>%
+  group_by(Cell_Type) %>%
+  summarize(
+    # BayesPrism vs ground_truth
+    Pearson_BayesPrism = cor(BayesPrism, ground_truth, method = "pearson", use = "pairwise.complete.obs"),
+    Spearman_BayesPrism = cor(BayesPrism, ground_truth, method = "spearman", use = "pairwise.complete.obs"),
+    RMSE_BayesPrism = calculate_rmse(BayesPrism, ground_truth),
+    
+    # BisqueRNA vs ground_truth
+    Pearson_BisqueRNA = cor(BisqueRNA, ground_truth, method = "pearson", use = "pairwise.complete.obs"),
+    Spearman_BisqueRNA = cor(BisqueRNA, ground_truth, method = "spearman", use = "pairwise.complete.obs"),
+    RMSE_BisqueRNA = calculate_rmse(BisqueRNA, ground_truth),
+    
+    # CibersortX vs ground_truth
+    Pearson_CibersortX = cor(CibersortX, ground_truth, method = "pearson", use = "pairwise.complete.obs"),
+    Spearman_CibersortX = cor(CibersortX, ground_truth, method = "spearman", use = "pairwise.complete.obs"),
+    RMSE_CibersortX = calculate_rmse(CibersortX, ground_truth),
+    
+    # DWLS vs ground_truth
+    Pearson_DWLS = cor(DWLS, ground_truth, method = "pearson", use = "pairwise.complete.obs"),
+    Spearman_DWLS = cor(DWLS, ground_truth, method = "spearman", use = "pairwise.complete.obs"),
+    RMSE_DWLS = calculate_rmse(DWLS, ground_truth),
+    
+    N_patients = n(), # Number of patients contributing to this cell type's metrics
+    .groups = "drop"  # Ungroup after summarization
+  )
+
+print(results)
+
+# Save results
+saveRDS(results, file = 'data/benchmark_results.rds')
+```
+
+
+```{r Benchmark - Plotting results}
+
+method_columns <- c("BayesPrism", "BisqueRNA", "CibersortX", "DWLS")
+
+df_long <- df_wide %>%
+  select(Patient, Cell_Type, ground_truth, all_of(method_columns)) %>%
+  pivot_longer(cols = all_of(method_columns),
+               names_to = "Method",
+               values_to = "Estimate")
+
+method_metrics <- df_long %>%
+  filter(!is.na(Estimate) & !is.na(ground_truth)) %>% # Ensure no NAs break calculations
+  group_by(Method) %>%
+  summarize(
+    # Calculate correlation only if there's variance in both predicted and ground truth
+    Overall_R = if(sd(Estimate, na.rm=TRUE) > 1e-9 && sd(ground_truth, na.rm=TRUE) > 1e-9) {
+      cor(Estimate, ground_truth, method = "pearson", use = "pairwise.complete.obs")
+    } else { NA_real_ },
+    Overall_RMSE = calculate_rmse(Estimate, ground_truth),
+    .groups = "drop"
+  )
+
+# Format the text for annotations
+method_metrics <- method_metrics %>%
+  mutate(
+    annotation_text = paste0("R: ", ifelse(is.na(Overall_R), "NA", sprintf("%.3f", Overall_R)),
+                             "\nRMSE: ", ifelse(is.na(Overall_RMSE), "NA", sprintf("%.3f", Overall_RMSE)))
+  )
+
+
+# Define plot appearance parameters
+plot_axis_max <- max(c(df_long$ground_truth, df_long$Estimate), na.rm = TRUE)
+plot_axis_max <- ceiling(plot_axis_max * 10) / 10 # Round up to nearest 0.1 for axis limit
+if (plot_axis_max < 0.7) plot_axis_max <- 0.7 # Ensure it's at least 0.7 like example
+
+# Annotation positions (data coordinates) - adjust as needed
+# Place in top-left corner of each facet
+method_metrics$anno_x_plot <- 0.02 # Small x-offset from left
+method_metrics$anno_y_plot <- plot_axis_max * 0.95  # 95% of the y-axis max
+
+scatter_plot <- ggplot(df_long, aes(x = ground_truth, y = Estimate)) +
+  geom_point(aes(color = Cell_Type), alpha = 0.8, size = 2) +
+  scale_color_manual(values = c("Acinar" = "royalblue",
+                                "B" = "#F72585",
+                                "Stellate" = "darkorange",
+                                "Vascular" = "darkred",
+                                "CAF" = "#986960",
+                                "Malignant" = "#7209B7",
+                                "Dendritic" = "dimgray",
+                                "Macrophages" = "green",
+                                "Endothelial" = "red",
+                                "Neutrophils" = "thistle",
+                                "Monocytes" = "darkseagreen",
+                                "CD4_T" = "cornflowerblue",
+                                "CD8_T" = "darkgreen",
+                                "NK" = "darkgoldenrod",
+                                "Cycling_T" = "black",
+                                "Treg" = "navy",
+                                "Ductal" = "lightcoral",
+                                "Plasma" = "orchid",
+                                "Mast" = "limegreen",
+                                "Schwann" = "darkturquoise",
+                                "Endocrine" = "rosybrown"))+
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black", linewidth = 0.5) +
+  facet_wrap(~ Method, ncol = 4) + 
+  geom_text(data = method_metrics,
+            aes(x = anno_x_plot, y = anno_y_plot, label = annotation_text),
+            hjust = 0, vjust = 1, size = 3, 
+            inherit.aes = FALSE) +
+  coord_cartesian(xlim = c(0, plot_axis_max), ylim = c(0, plot_axis_max), expand = FALSE) +
+  scale_x_continuous(breaks = seq(0, plot_axis_max, by = 0.2)) +
+  scale_y_continuous(breaks = seq(0, plot_axis_max, by = 0.2)) +
+  labs(
+    x = "Ground truth cell-type fraction",
+    y = "Estimated cell-type fraction",
+    color = "Cell Type" 
+  ) +
+  theme_bw(base_size = 10) + 
+  theme(
+    strip.background = element_rect(fill = "grey90", color = "grey50", linewidth = 0.5),
+    strip.text = element_text(face = "bold", margin = margin(4,0,4,0, "pt")),
+    legend.position = "bottom",
+    aspect.ratio = 1, 
+    panel.spacing = unit(0.5, "lines"), 
+    panel.grid.major = element_line(linewidth = 0.3),
+    panel.grid.minor = element_line(linewidth = 0.15)
+  )
+
+print(scatter_plot)
